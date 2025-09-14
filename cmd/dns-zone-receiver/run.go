@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	baseDir    = ""
-	listenAddr = ""
+	baseDir    string
+	listenAddr string
+	tmpDirBase string
 
 	l *slog.Logger
 )
@@ -21,6 +22,7 @@ var (
 const (
 	baseDirEnvKey    = "DNS_ZONE_RECEIVER_BASE_DIR"
 	listenAddrEnvKey = "DNS_ZONE_RECEIVER_LISTEN_ADDR"
+	tmpDirBaseEnvKey = "DNS_ZONE_RECEIVER_TMP_DIR"
 	logLevelEnvKey   = "DNS_ZONE_RECEIVER_LOG_LEVEL"
 )
 
@@ -46,6 +48,10 @@ func run() error {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8080"
 	}
+	tmpDirBase = os.Getenv(tmpDirBaseEnvKey)
+	if tmpDirBase == "" {
+		tmpDirBase = "/tmp"
+	}
 
 	http.HandleFunc("POST /v1/zones/{zonename}/upload", zoneUpload)
 	l.Info("Listening on...\n", slog.String("address", listenAddr))
@@ -61,18 +67,18 @@ func zoneUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer zone.Close()
 
-	tmpFile, err := os.CreateTemp("", "dns-zone-receiver-*")
+	if err = os.MkdirAll(tmpDirBase, 0755); err != nil {
+		l.Error("failed to create temporary directory", slog.Any("error", err))
+		http.Error(w, "failed to save file", http.StatusInternalServerError)
+		return
+	}
+	tmpFile, err := os.CreateTemp(tmpDirBase, "dns-zone-receiver-*")
 	if err != nil {
 		l.Error("failed to create temporary file", slog.Any("error", err))
 		http.Error(w, "failed to save file", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		err := os.Remove(tmpFile.Name())
-		if err != nil {
-			l.Error("failed to remove temporary file", slog.String("path", tmpFile.Name()), slog.Any("error", err))
-		}
-	}()
+	defer os.Remove(tmpFile.Name())
 
 	if _, err := io.Copy(tmpFile, zone); err != nil {
 		l.Error("failed to save zone file", slog.Any("path", tmpFile.Name()), slog.Any("error", err))
