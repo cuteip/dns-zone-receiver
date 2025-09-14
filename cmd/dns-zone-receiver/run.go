@@ -118,6 +118,13 @@ func zoneUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// mktemp で group, other が落ちてしまうので上書き
+	if err := os.Chmod(outPath, 0644); err != nil {
+		l.Error("failed to change file permissions", slog.Any("path", outPath), slog.Any("error", err))
+		http.Error(w, "failed to save zone file", http.StatusInternalServerError)
+		return
+	}
+
 	if err := execPostHook(postHook, 10*time.Second, zonename); err != nil {
 		l.Error("failed to execute post hook", slog.Any("error", err))
 	}
