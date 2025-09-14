@@ -61,28 +61,41 @@ func zoneUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer zone.Close()
 
+	tmpFile, err := os.CreateTemp("", "dns-zone-receiver-*")
+	if err != nil {
+		l.Error("failed to create temporary file", slog.Any("error", err))
+		http.Error(w, "failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		err := os.Remove(tmpFile.Name())
+		if err != nil {
+			l.Error("failed to remove temporary file", slog.String("path", tmpFile.Name()), slog.Any("error", err))
+		}
+	}()
+
+	if _, err := io.Copy(tmpFile, zone); err != nil {
+		l.Error("failed to save zone file", slog.Any("path", tmpFile.Name()), slog.Any("error", err))
+		http.Error(w, "failed to save zone file", http.StatusInternalServerError)
+		return
+	}
+
 	zonename := r.PathValue("zonename")
 	outPath := filepath.Join(baseDir, zonename, "all.zone")
 	err = os.MkdirAll(filepath.Dir(outPath), 0755)
 	if err != nil {
 		l.Error("failed to create output directory", slog.Any("path", outPath), slog.Any("error", err))
-		http.Error(w, "failed to create output directory", http.StatusInternalServerError)
+		http.Error(w, "failed to save zone file", http.StatusInternalServerError)
 		return
 	}
 
 	out, err := os.Create(outPath)
 	if err != nil {
 		l.Error("failed to create output file", slog.Any("path", outPath), slog.Any("error", err))
-		http.Error(w, "failed to create output file", http.StatusInternalServerError)
-		return
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, zone); err != nil {
-		l.Error("failed to save zone file", slog.Any("path", outPath), slog.Any("error", err))
 		http.Error(w, "failed to save zone file", http.StatusInternalServerError)
 		return
 	}
+	defer out.Close()
 
 	l.Info("zone file uploaded successfully", slog.String("path", outPath))
 	w.Write([]byte("done\n"))
