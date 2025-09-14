@@ -97,6 +97,12 @@ func zoneUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer out.Close()
 
+	if err := os.Rename(tmpFile.Name(), outPath); err != nil {
+		l.Error("failed to rename temporary file", slog.String("from", tmpFile.Name()), slog.String("to", outPath), slog.Any("error", err))
+		http.Error(w, "failed to save zone file", http.StatusInternalServerError)
+		return
+	}
+
 	l.Info("zone file uploaded successfully", slog.String("path", outPath))
 	w.Write([]byte("done\n"))
 }
